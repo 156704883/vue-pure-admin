@@ -13,6 +13,7 @@ import {
 } from "vue-router";
 import {
   ascending,
+  getTopMenu,
   initRouter,
   isOneOfArray,
   getHistoryMode,
@@ -46,13 +47,13 @@ Object.keys(modules).forEach(key => {
 
 /** 导出处理后的静态路由（三级及以上的路由全部拍成二级） */
 export const constantRoutes: Array<RouteRecordRaw> = formatTwoStageRoutes(
-  formatFlatteningRoutes(buildHierarchyTree(ascending(routes)))
+  formatFlatteningRoutes(buildHierarchyTree(ascending(routes.flat(Infinity))))
 );
 
 /** 用于渲染菜单，保持原始层级 */
-export const constantMenus: Array<RouteComponent> = ascending(routes).concat(
-  ...remainingRouter
-);
+export const constantMenus: Array<RouteComponent> = ascending(
+  routes.flat(Infinity)
+).concat(...remainingRouter);
 
 /** 不参与菜单的路由 */
 export const remainingPaths = Object.keys(remainingRouter).map(v => {
@@ -86,7 +87,9 @@ export function resetRouter() {
     if (name && router.hasRoute(name) && meta?.backstage) {
       router.removeRoute(name);
       router.options.routes = formatTwoStageRoutes(
-        formatFlatteningRoutes(buildHierarchyTree(ascending(routes)))
+        formatFlatteningRoutes(
+          buildHierarchyTree(ascending(routes.flat(Infinity)))
+        )
       );
     }
   });
@@ -96,13 +99,14 @@ export function resetRouter() {
 /** 路由白名单 */
 const whiteList = ["/login"];
 
+const { VITE_HIDE_HOME } = import.meta.env;
+
 router.beforeEach((to: toRouteType, _from, next) => {
   if (to.meta?.keepAlive) {
-    const newMatched = to.matched;
-    handleAliveRoute(newMatched, "add");
+    handleAliveRoute(to, "add");
     // 页面整体刷新和点击标签页刷新
     if (_from.name === undefined || _from.name === "Redirect") {
-      handleAliveRoute(newMatched);
+      handleAliveRoute(to);
     }
   }
   const userInfo = storageSession().getItem<DataInfo<number>>(sessionKey);
@@ -126,6 +130,10 @@ router.beforeEach((to: toRouteType, _from, next) => {
     if (to.meta?.roles && !isOneOfArray(to.meta?.roles, userInfo?.roles)) {
       next({ path: "/error/403" });
     }
+    // 开启隐藏首页后在浏览器地址栏手动输入首页welcome路由则跳转到404页面
+    if (VITE_HIDE_HOME === "true" && to.fullPath === "/welcome") {
+      next({ path: "/error/404" });
+    }
     if (_from?.name) {
       // name为超链接
       if (externalLink) {
@@ -139,7 +147,7 @@ router.beforeEach((to: toRouteType, _from, next) => {
       if (
         usePermissionStoreHook().wholeMenus.length === 0 &&
         to.path !== "/login"
-      )
+      ) {
         initRouter().then((router: Router) => {
           if (!useMultiTagsStoreHook().getMultiTagsCache) {
             const { path } = to;
@@ -147,6 +155,7 @@ router.beforeEach((to: toRouteType, _from, next) => {
               path,
               router.options.routes[0].children
             );
+            getTopMenu(true);
             // query、params模式路由传参数的标签页不在此处处理
             if (route && route.meta?.title) {
               useMultiTagsStoreHook().handleTags("push", {
@@ -158,6 +167,7 @@ router.beforeEach((to: toRouteType, _from, next) => {
           }
           router.push(to.fullPath);
         });
+      }
       toCorrectRoute();
     }
   } else {
